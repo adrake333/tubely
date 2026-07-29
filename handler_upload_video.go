@@ -74,6 +74,18 @@ func getVideoAspectRatio(filePath string) (string, error) {
 	return "other", nil
 }
 
+func processVideoForFastStart(filePath string) (string, error) {
+	outputPath := filePath + ".processing"
+
+	cmd := exec.Command("ffmpeg", "-i", filePath, "-c", "copy", "-movflags", "faststart", "-f", "mp4", outputPath)
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+
+	return outputPath, nil
+}
+
 func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request) {
 	const maxUploadSize = 1 << 30
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
@@ -133,7 +145,6 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 	
 	defer os.Remove(temp.Name())
-	defer temp.Close()
 
 	_, err = io.Copy(temp, file)
 	if err != nil {
@@ -141,11 +152,22 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	_, err = temp.Seek(0, io.SeekStart)
+	temp.Close()
+
+	processed, err := processVideoForFastStart(temp.Name())
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to set seek point", err)
+		respondWithError(w, http.StatusInternalServerError, "Failed to process video for fast start", err)
 		return
 	}
+	
+	processedFile, err := os.Open(processed)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to open fast start file", err)
+		return
+	}
+
+	defer processedFile.Close()
+	defer os.Remove(processed)
 
 	aspect, err := getVideoAspectRatio(temp.Name())
 	if err != nil {
@@ -176,7 +198,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	_, err = cfg.s3Client.PutObject(context.Background(), &s3.PutObjectInput{
 		Bucket:		aws.String(cfg.s3Bucket),
 		Key:		aws.String(key),
-		Body:		temp,
+		Body:		processedFile,
 		ContentType:	aws.String(parsedType),
 	})
 	if err != nil {
