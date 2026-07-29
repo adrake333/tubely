@@ -1,21 +1,78 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"os"
+	"os/exec"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
 )
+
+
+
+
+type ffprobeOutput struct {
+	Streams		[]Stream	`json:"streams"`
+}
+
+type Stream struct {
+	Width		int		`json:"width"`
+	Height		int		`json:"height"`
+}
+
+func getVideoAspectRatio(filePath string) (string, error) {
+	var out bytes.Buffer
+	cmd := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", filePath)
+	cmd.Stdout = &out
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+
+	var ffprobeOut ffprobeOutput
+	err = json.Unmarshal(out.Bytes(), &ffprobeOut)
+	if err != nil {
+		return "", err
+	}
+
+	if len(ffprobeOut.Streams) == 0 {
+		return "", errors.New("empty stream")
+	}
+	width := ffprobeOut.Streams[0].Width
+	height := ffprobeOut.Streams[0].Height
+	if width <= 0 || height <= 0 {
+		return "", errors.New("invalid video dimensions")
+	}
+
+	if height > width {
+		ratio := float64(width) / float64(height)
+		if math.Abs(ratio - 0.5625) <= 0.01 {
+			return "9:16", nil
+		}
+	}
+
+	if height < width {
+		ratio := float64(width) / float64(height)
+		if math.Abs(ratio - 1.7777) <= 0.01 {
+			return "16:9", nil
+		}
+	}
+	
+	return "other", nil
+}
 
 func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request) {
 	const maxUploadSize = 1 << 30
