@@ -206,7 +206,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	url := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, key)
+	url := fmt.Sprintf("%s,%s", cfg.s3Bucket, key)
 	video.VideoURL = &url
 	err = cfg.db.UpdateVideo(video)
 	if err != nil {
@@ -214,5 +214,11 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, video)
+	signedVideo, err := cfg.dbVideoToSignedVideo(video)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to sign videoURL", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, signedVideo)
 }
