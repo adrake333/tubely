@@ -146,6 +146,23 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Failed to set seek point", err)
 		return
 	}
+
+	aspect, err := getVideoAspectRatio(temp.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to calculate aspect ratio", err)
+		return
+	}
+
+	var ratio string
+	if aspect == "16:9" {
+		ratio = "landscape/"
+	}
+	if aspect == "9:16" {
+		ratio = "portrait/"
+	}
+	if aspect == "other" {
+		ratio = "other/"
+	}
 	
 	randKey := make([]byte, 32)
 	rand.Read(randKey)
@@ -155,7 +172,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusBadRequest, "Unable to retrieve file extensions", err)
 		return
 	}
-	key := randKeyString + extensions[0]
+	key := ratio + randKeyString + extensions[0]
 	_, err = cfg.s3Client.PutObject(context.Background(), &s3.PutObjectInput{
 		Bucket:		aws.String(cfg.s3Bucket),
 		Key:		aws.String(key),
